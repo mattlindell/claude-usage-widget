@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteCredentials: () => ipcRenderer.invoke('delete-credentials'),
   validateSessionKey: (sessionKey) => ipcRenderer.invoke('validate-session-key', sessionKey),
   detectSessionKey: () => ipcRenderer.invoke('detect-session-key'),
+  fetchOrganizations: () => ipcRenderer.invoke('fetch-organizations'),
 
   // Window controls
   minimizeWindow: () => ipcRenderer.send('minimize-window'),

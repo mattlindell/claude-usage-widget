@@ -99,7 +99,14 @@ const elements = {
     compactWeeklyFill: document.getElementById('compactWeeklyFill'),
     compactWeeklyPct: document.getElementById('compactWeeklyPct'),
     compactSettingsOverlay: document.getElementById('compactSettingsOverlay'),
-    closeCompactSettingsBtn: document.getElementById('closeCompactSettingsBtn')
+    closeCompactSettingsBtn: document.getElementById('closeCompactSettingsBtn'),
+
+    settingsOrgRow: document.getElementById('settingsOrgRow'),
+    settingsOrgBtn: document.getElementById('settingsOrgBtn'),
+    settingsOrgName: document.getElementById('settingsOrgName'),
+    settingsOrgChevron: document.getElementById('settingsOrgChevron'),
+    settingsOrgPicker: document.getElementById('settingsOrgPicker'),
+    settingsOrgList: document.getElementById('settingsOrgList')
 };
 
 // Initialize
@@ -237,6 +244,9 @@ function setupEventListeners() {
 
     // Settings close
     elements.closeSettingsBtn.addEventListener('click', async () => {
+        // Close org picker if open
+        elements.settingsOrgPicker.style.display = 'none';
+        elements.settingsOrgChevron.classList.remove('expanded');
         await saveSettings();
         elements.settingsOverlay.style.display = 'none';
         if (!isCompactMode) resizeWidget();
@@ -318,6 +328,36 @@ function setupEventListeners() {
             await loadSettings();
             elements.settingsOverlay.style.display = 'flex';
             window.electronAPI.resizeWindow(288);
+        }
+    });
+
+    // Settings org switcher — toggle inline picker
+    elements.settingsOrgBtn.addEventListener('click', async () => {
+        const picker = elements.settingsOrgPicker;
+        const isOpen = picker.style.display !== 'none';
+        if (isOpen) {
+            picker.style.display = 'none';
+            elements.settingsOrgChevron.classList.remove('expanded');
+            window.electronAPI.resizeWindow(288);
+            return;
+        }
+
+        // Show loading state
+        elements.settingsOrgName.dataset.originalText = elements.settingsOrgName.textContent;
+        elements.settingsOrgBtn.disabled = true;
+
+        try {
+            const orgs = await window.electronAPI.fetchOrganizations();
+            renderSettingsOrgPicker(orgs);
+            picker.style.display = 'block';
+            elements.settingsOrgChevron.classList.add('expanded');
+            // Resize to fit: settings header + org row + picker cards + rest of settings
+            const pickerHeight = 288 + (orgs.length * 48) + 16;
+            window.electronAPI.resizeWindow(Math.max(pickerHeight, 288));
+        } catch (err) {
+            console.error('Failed to fetch organizations:', err);
+        } finally {
+            elements.settingsOrgBtn.disabled = false;
         }
     });
 
@@ -488,11 +528,92 @@ function renderOrgPicker(organizations) {
 
         credentials = { sessionKey: pendingSessionKey, organizationId: selectedUuid };
         await window.electronAPI.saveCredentials(credentials);
+        // Cache the selected org name for the settings panel
+        const selectedCard = elements.orgList.querySelector('.org-card.selected .org-name');
+        if (selectedCard) window._cachedOrgName = selectedCard.textContent;
         pendingSessionKey = null;
 
         showMainContent();
         await fetchUsageData();
         startAutoUpdate();
+    });
+}
+
+// Render org cards in the settings inline picker
+function renderSettingsOrgPicker(organizations) {
+    elements.settingsOrgList.innerHTML = '';
+    const currentOrgId = credentials.organizationId;
+
+    organizations.forEach(org => {
+        const card = document.createElement('div');
+        card.className = 'org-card';
+        if (org.uuid === currentOrgId) card.classList.add('selected');
+        card.dataset.uuid = org.uuid;
+
+        const radio = document.createElement('div');
+        radio.className = 'org-radio';
+        const dot = document.createElement('div');
+        dot.className = 'org-radio-dot';
+        radio.appendChild(dot);
+
+        const info = document.createElement('div');
+        info.className = 'org-info';
+
+        const name = document.createElement('div');
+        name.className = 'org-name';
+        name.textContent = org.name;
+        info.appendChild(name);
+
+        const meta = document.createElement('div');
+        meta.className = 'org-meta';
+        if (Array.isArray(org.capabilities)) {
+            org.capabilities.forEach(cap => {
+                const badge = document.createElement('span');
+                badge.className = 'org-badge';
+                badge.textContent = cap;
+                meta.appendChild(badge);
+            });
+        }
+        if (org.raven_type) {
+            const badge = document.createElement('span');
+            badge.className = 'org-badge raven-type';
+            badge.textContent = org.raven_type;
+            meta.appendChild(badge);
+        }
+        info.appendChild(meta);
+
+        card.appendChild(radio);
+        card.appendChild(info);
+
+        card.addEventListener('click', async () => {
+            if (org.uuid === credentials.organizationId) return;
+
+            // Visual selection
+            const prev = elements.settingsOrgList.querySelector('.org-card.selected');
+            if (prev) prev.classList.remove('selected');
+            card.classList.add('selected');
+
+            // Save new org and refresh
+            credentials.organizationId = org.uuid;
+            await window.electronAPI.saveCredentials({
+                sessionKey: credentials.sessionKey,
+                organizationId: org.uuid
+            });
+
+            // Update displayed org name and cache
+            elements.settingsOrgName.textContent = org.name;
+            window._cachedOrgName = org.name;
+
+            // Close the picker
+            elements.settingsOrgPicker.style.display = 'none';
+            elements.settingsOrgChevron.classList.remove('expanded');
+            window.electronAPI.resizeWindow(288);
+
+            // Refresh dashboard with new org's data
+            await fetchUsageData();
+        });
+
+        elements.settingsOrgList.appendChild(card);
     });
 }
 
@@ -1503,6 +1624,30 @@ async function loadSettings() {
     applyTheme(settings.theme);
     if (window.electronAPI.platform === 'darwin') {
         document.getElementById('trayLabel').textContent = 'Hide from Dock';
+    }
+
+    // Show org switcher row and populate current org name
+    if (credentials.organizationId) {
+        elements.settingsOrgRow.style.display = 'block';
+        // Reset picker state
+        elements.settingsOrgPicker.style.display = 'none';
+        elements.settingsOrgChevron.classList.remove('expanded');
+        // Try to get org name from cache or show placeholder
+        if (window._cachedOrgName) {
+            elements.settingsOrgName.textContent = window._cachedOrgName;
+        } else {
+            elements.settingsOrgName.textContent = 'Organization';
+            // Fetch in background to get the name
+            window.electronAPI.fetchOrganizations().then(orgs => {
+                const current = orgs.find(o => o.uuid === credentials.organizationId);
+                if (current) {
+                    elements.settingsOrgName.textContent = current.name;
+                    window._cachedOrgName = current.name;
+                }
+            }).catch(() => {});
+        }
+    } else {
+        elements.settingsOrgRow.style.display = 'none';
     }
 }
 

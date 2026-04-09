@@ -322,6 +322,45 @@ ipcMain.handle('validate-session-key', async (event, sessionKey) => {
   }
 });
 
+// Re-fetch organizations list (used by settings org switcher)
+ipcMain.handle('fetch-organizations', async () => {
+  let sessionKey = null;
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = store.get('sessionKey_encrypted');
+    if (encrypted) {
+      try {
+        sessionKey = safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+      } catch (err) {
+        console.error('[Keychain] Failed to decrypt session key:', err.message);
+      }
+    }
+  } else {
+    sessionKey = store.get('sessionKey');
+  }
+
+  if (!sessionKey) {
+    throw new Error('No session key available');
+  }
+
+  await setSessionCookie(sessionKey);
+  const data = await fetchViaWindow('https://claude.ai/api/organizations');
+
+  if (data && Array.isArray(data) && data.length > 0) {
+    return data.map(org => ({
+      uuid: org.uuid || org.id,
+      name: org.name,
+      capabilities: org.capabilities || [],
+      raven_type: org.raven_type || null
+    }));
+  }
+
+  if (data && data.error) {
+    throw new Error(data.error.message || data.error);
+  }
+
+  throw new Error('No organizations found');
+});
+
 ipcMain.on('minimize-window', () => {
   if (mainWindow) {
     // macOS: minimize to Dock so the user can restore via Dock click

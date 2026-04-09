@@ -1016,6 +1016,81 @@ body.theme-light .settings-disclaimer {
     flex-shrink: 0;
 }
 
+/* Settings org switcher */
+.settings-org-row {
+    padding: 0 4px 4px;
+}
+
+.settings-org-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #e0e0e0;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.settings-org-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.settings-org-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.settings-org-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-org-chevron {
+    flex-shrink: 0;
+    transition: transform 0.2s;
+}
+
+.settings-org-chevron.expanded {
+    transform: rotate(180deg);
+}
+
+.settings-org-picker {
+    margin-top: 6px;
+}
+
+.settings-org-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.settings-org-list .org-card {
+    /* Reuse login org card styles — slightly smaller for settings context */
+    padding: 6px 10px;
+    min-height: auto;
+}
+
+.settings-org-list .org-name {
+    font-size: 11px;
+}
+
+.settings-org-list .org-meta {
+    margin-top: 1px;
+}
+
+.settings-org-list .org-badge {
+    font-size: 8px;
+    padding: 1px 4px;
+}
+
 /* Two-column toggle row */
 .settings-row-2col {
     display: grid;
@@ -1666,6 +1741,16 @@ body.theme-light .org-picker-header h3 {
 
 body.theme-light .org-picker-warning {
     color: #d97706;
+}
+
+body.theme-light .settings-org-btn {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.1);
+    color: #1a1a2e;
+}
+
+body.theme-light .settings-org-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
 }
 
 /* Pulse animation when usage hits 100% */
