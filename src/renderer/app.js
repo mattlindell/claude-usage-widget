@@ -153,9 +153,7 @@ async function init() {
     }
 
     if (credentials.sessionKey && credentials.organizationId) {
-        showMainContent();
-        await fetchUsageData();
-        startAutoUpdate();
+        await validateAndResumeSession();
     } else {
         showLoginRequired();
     }
@@ -638,6 +636,50 @@ function showOrgPicker(organizations, warningMessage) {
     // Resize widget to fit: title bar (36) + header (~50) + cards + footer (~40) + padding
     const pickerHeight = 36 + 50 + (organizations.length * 48) + 40 + 30;
     window.electronAPI.resizeWindow(Math.max(pickerHeight, 200));
+}
+
+// Validate stored credentials on relaunch and handle stale org selection
+async function validateAndResumeSession() {
+    try {
+        const result = await window.electronAPI.validateSessionKey(credentials.sessionKey);
+        if (!result.success) {
+            credentials = { sessionKey: null, organizationId: null };
+            showLoginRequired();
+            return;
+        }
+
+        if (result.organizations) {
+            // Multi-org response — check if stored org is still valid
+            const storedOrg = result.organizations.find(o => o.uuid === credentials.organizationId);
+            if (storedOrg) {
+                // Stored org still valid — proceed to dashboard
+                window._cachedOrgName = storedOrg.name;
+                showMainContent();
+                await fetchUsageData();
+                startAutoUpdate();
+            } else {
+                // Stored org no longer available — show picker with warning
+                pendingSessionKey = credentials.sessionKey;
+                credentials = { sessionKey: null, organizationId: null };
+                showOrgPicker(
+                    result.organizations,
+                    'Your previous organization is no longer available. Please select one.'
+                );
+            }
+        } else {
+            // Single org — auto-select silently
+            credentials.organizationId = result.organizationId;
+            await window.electronAPI.saveCredentials(credentials);
+            showMainContent();
+            await fetchUsageData();
+            startAutoUpdate();
+        }
+    } catch (error) {
+        debugLog('Session validation failed on relaunch:', error);
+        showMainContent();
+        await fetchUsageData();
+        startAutoUpdate();
+    }
 }
 
 // Fetch usage data from Claude API
