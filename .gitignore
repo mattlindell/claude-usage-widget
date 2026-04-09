@@ -53,3 +53,6 @@ developerID_application.cer
 .vera/
 .claude/settings.local.json
 .claude/skills/
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
