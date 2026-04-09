@@ -3,6 +3,7 @@ const path = require('path');
 const https = require('https');
 const Store = require('electron-store');
 const { fetchViaWindow } = require('./src/fetch-via-window');
+const { validateSessionKey, fetchOrganizations } = require('./src/org-handlers');
 
 const GITHUB_OWNER = 'SlavomirDurej';
 const GITHUB_REPO = 'claude-usage-widget';
@@ -283,43 +284,26 @@ ipcMain.handle('delete-credentials', async () => {
 // Validate a sessionKey by fetching org ID via hidden BrowserWindow
 ipcMain.handle('validate-session-key', async (event, sessionKey) => {
   debugLog('Validating session key:', sessionKey.substring(0, 20) + '...');
-  try {
-    // Set the cookie in Electron's session first
-    await setSessionCookie(sessionKey);
+  // Set the cookie in Electron's session first
+  await setSessionCookie(sessionKey);
 
-    // Fetch organizations using hidden BrowserWindow (bypasses Cloudflare)
-    const data = await fetchViaWindow('https://claude.ai/api/organizations');
+  const result = await validateSessionKey(
+    () => fetchViaWindow('https://claude.ai/api/organizations')
+  );
 
-    if (data && Array.isArray(data) && data.length > 0) {
-      if (data.length === 1) {
-        const orgId = data[0].uuid || data[0].id;
-        debugLog('Session key validated, single org ID:', orgId);
-        return { success: true, organizationId: orgId };
-      }
-
-      // Multiple orgs — return the full list for the picker
-      const organizations = data.map(org => ({
-        uuid: org.uuid || org.id,
-        name: org.name,
-        capabilities: org.capabilities || [],
-        raven_type: org.raven_type || null
-      }));
-      debugLog('Session key validated, multiple orgs:', organizations.length);
-      return { success: true, organizations };
+  if (result.success) {
+    if (result.organizationId) {
+      debugLog('Session key validated, single org ID:', result.organizationId);
+    } else {
+      debugLog('Session key validated, multiple orgs:', result.organizations.length);
     }
-
-    // Check if it's an error response
-    if (data && data.error) {
-      return { success: false, error: data.error.message || data.error };
-    }
-
-    return { success: false, error: 'No organization found' };
-  } catch (error) {
-    console.error('Session key validation failed:', error.message);
+  } else {
+    console.error('Session key validation failed:', result.error);
     // Clean up the invalid cookie
     await session.defaultSession.cookies.remove('https://claude.ai', 'sessionKey');
-    return { success: false, error: error.message };
   }
+
+  return result;
 });
 
 // Re-fetch organizations list (used by settings org switcher)
@@ -343,22 +327,9 @@ ipcMain.handle('fetch-organizations', async () => {
   }
 
   await setSessionCookie(sessionKey);
-  const data = await fetchViaWindow('https://claude.ai/api/organizations');
-
-  if (data && Array.isArray(data) && data.length > 0) {
-    return data.map(org => ({
-      uuid: org.uuid || org.id,
-      name: org.name,
-      capabilities: org.capabilities || [],
-      raven_type: org.raven_type || null
-    }));
-  }
-
-  if (data && data.error) {
-    throw new Error(data.error.message || data.error);
-  }
-
-  throw new Error('No organizations found');
+  return fetchOrganizations(
+    () => fetchViaWindow('https://claude.ai/api/organizations')
+  );
 });
 
 ipcMain.on('minimize-window', () => {
