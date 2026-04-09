@@ -13,6 +13,21 @@ let isFetching = false;       // in-flight guard — prevents overlapping fetchU
 const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const WIDGET_HEIGHT_COLLAPSED = 155;
 const WIDGET_ROW_HEIGHT = 30;
+const SETTINGS_BASE_HEIGHT = 288;
+const ORG_ROW_HEIGHT = 40;
+const ORG_CARD_HEIGHT = 48;
+const ORG_PICKER_PADDING = 16;
+
+function getSettingsHeight({ orgRowVisible, pickerOrgCount }) {
+    let height = SETTINGS_BASE_HEIGHT;
+    if (orgRowVisible) {
+        height += ORG_ROW_HEIGHT;
+        if (pickerOrgCount > 0) {
+            height += (pickerOrgCount * ORG_CARD_HEIGHT) + ORG_PICKER_PADDING;
+        }
+    }
+    return height;
+}
 const GRAPH_HEIGHT = 232;
 let pendingSessionKey = null; // Holds sessionKey while org picker is shown
 
@@ -325,7 +340,8 @@ function setupEventListeners() {
         } else {
             await loadSettings();
             elements.settingsOverlay.style.display = 'flex';
-            window.electronAPI.resizeWindow(288);
+            const orgVisible = elements.settingsOrgRow.style.display !== 'none';
+            window.electronAPI.resizeWindow(getSettingsHeight({ orgRowVisible: orgVisible, pickerOrgCount: 0 }));
         }
     });
 
@@ -336,7 +352,7 @@ function setupEventListeners() {
         if (isOpen) {
             picker.style.display = 'none';
             elements.settingsOrgChevron.classList.remove('expanded');
-            window.electronAPI.resizeWindow(288);
+            window.electronAPI.resizeWindow(getSettingsHeight({ orgRowVisible: true, pickerOrgCount: 0 }));
             return;
         }
 
@@ -349,9 +365,8 @@ function setupEventListeners() {
             renderSettingsOrgPicker(orgs);
             picker.style.display = 'block';
             elements.settingsOrgChevron.classList.add('expanded');
-            // Resize to fit: settings header + org row + picker cards + rest of settings
-            const pickerHeight = 288 + (orgs.length * 48) + 16;
-            window.electronAPI.resizeWindow(Math.max(pickerHeight, 288));
+            // Resize to fit: settings base + org row + picker cards
+            window.electronAPI.resizeWindow(getSettingsHeight({ orgRowVisible: true, pickerOrgCount: orgs.length }));
         } catch (err) {
             console.error('Failed to fetch organizations:', err);
         } finally {
@@ -605,7 +620,7 @@ function renderSettingsOrgPicker(organizations) {
             // Close the picker
             elements.settingsOrgPicker.style.display = 'none';
             elements.settingsOrgChevron.classList.remove('expanded');
-            window.electronAPI.resizeWindow(288);
+            window.electronAPI.resizeWindow(getSettingsHeight({ orgRowVisible: true, pickerOrgCount: 0 }));
 
             // Refresh dashboard with new org's data
             await fetchUsageData();

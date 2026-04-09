@@ -1252,6 +1252,7 @@ body.theme-light .settings-disclaimer {
     gap: 8px;
     padding: 7px 14px;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
+    flex-shrink: 0;
 }
 
 .settings-footer .settings-version-label {
