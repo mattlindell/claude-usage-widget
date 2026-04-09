@@ -14,6 +14,7 @@ const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const WIDGET_HEIGHT_COLLAPSED = 155;
 const WIDGET_ROW_HEIGHT = 30;
 const GRAPH_HEIGHT = 232;
+let pendingSessionKey = null; // Holds sessionKey while org picker is shown
 
 // Debug logging — only shows in DevTools (development mode).
 // Regular users won't see verbose logs in production.
@@ -30,6 +31,10 @@ const elements = {
     mainContent: document.getElementById('mainContent'),
     loginStep1: document.getElementById('loginStep1'),
     loginStep2: document.getElementById('loginStep2'),
+    loginStep3: document.getElementById('loginStep3'),
+    orgList: document.getElementById('orgList'),
+    orgContinueBtn: document.getElementById('orgContinueBtn'),
+    orgPickerWarning: document.getElementById('orgPickerWarning'),
     autoDetectBtn: document.getElementById('autoDetectBtn'),
     autoDetectError: document.getElementById('autoDetectError'),
     openBrowserLink: document.getElementById('openBrowserLink'),
@@ -343,12 +348,20 @@ async function handleConnect() {
     try {
         const result = await window.electronAPI.validateSessionKey(sessionKey);
         if (result.success) {
-            credentials = { sessionKey, organizationId: result.organizationId };
-            await window.electronAPI.saveCredentials(credentials);
-            elements.sessionKeyInput.value = '';
-            showMainContent();
-            await fetchUsageData();
-            startAutoUpdate();
+            if (result.organizations) {
+                // Multi-org — show picker
+                pendingSessionKey = sessionKey;
+                elements.sessionKeyInput.value = '';
+                showOrgPicker(result.organizations);
+            } else {
+                // Single org — complete login directly
+                credentials = { sessionKey, organizationId: result.organizationId };
+                await window.electronAPI.saveCredentials(credentials);
+                elements.sessionKeyInput.value = '';
+                showMainContent();
+                await fetchUsageData();
+                startAutoUpdate();
+            }
         } else {
             elements.sessionKeyError.textContent = result.error || 'Invalid session key';
         }
@@ -378,14 +391,21 @@ async function handleAutoDetect() {
         const validation = await window.electronAPI.validateSessionKey(result.sessionKey);
 
         if (validation.success) {
-            credentials = {
-                sessionKey: result.sessionKey,
-                organizationId: validation.organizationId
-            };
-            await window.electronAPI.saveCredentials(credentials);
-            showMainContent();
-            await fetchUsageData();
-            startAutoUpdate();
+            if (validation.organizations) {
+                // Multi-org — show picker
+                pendingSessionKey = result.sessionKey;
+                showOrgPicker(validation.organizations);
+            } else {
+                // Single org — complete login directly
+                credentials = {
+                    sessionKey: result.sessionKey,
+                    organizationId: validation.organizationId
+                };
+                await window.electronAPI.saveCredentials(credentials);
+                showMainContent();
+                await fetchUsageData();
+                startAutoUpdate();
+            }
         } else {
             elements.autoDetectError.textContent =
                 'Session invalid. Try again or use Manual →';
@@ -396,6 +416,107 @@ async function handleAutoDetect() {
         elements.autoDetectBtn.disabled = false;
         elements.autoDetectBtn.textContent = 'Log in';
     }
+}
+
+// Render org cards in the Step 3 picker
+function renderOrgPicker(organizations) {
+    elements.orgList.innerHTML = '';
+    let selectedUuid = null;
+
+    organizations.forEach(org => {
+        const card = document.createElement('div');
+        card.className = 'org-card';
+        card.dataset.uuid = org.uuid;
+
+        const radio = document.createElement('div');
+        radio.className = 'org-radio';
+        const dot = document.createElement('div');
+        dot.className = 'org-radio-dot';
+        radio.appendChild(dot);
+
+        const info = document.createElement('div');
+        info.className = 'org-info';
+
+        const name = document.createElement('div');
+        name.className = 'org-name';
+        name.textContent = org.name;
+        info.appendChild(name);
+
+        const meta = document.createElement('div');
+        meta.className = 'org-meta';
+
+        if (Array.isArray(org.capabilities)) {
+            org.capabilities.forEach(cap => {
+                const badge = document.createElement('span');
+                badge.className = 'org-badge';
+                badge.textContent = cap;
+                meta.appendChild(badge);
+            });
+        }
+
+        if (org.raven_type) {
+            const badge = document.createElement('span');
+            badge.className = 'org-badge raven-type';
+            badge.textContent = org.raven_type;
+            meta.appendChild(badge);
+        }
+
+        info.appendChild(meta);
+        card.appendChild(radio);
+        card.appendChild(info);
+
+        card.addEventListener('click', () => {
+            const prev = elements.orgList.querySelector('.org-card.selected');
+            if (prev) prev.classList.remove('selected');
+            card.classList.add('selected');
+            selectedUuid = org.uuid;
+            elements.orgContinueBtn.disabled = false;
+        });
+
+        elements.orgList.appendChild(card);
+    });
+
+    // Replace button to avoid stacking listeners
+    const newBtn = elements.orgContinueBtn.cloneNode(true);
+    elements.orgContinueBtn.replaceWith(newBtn);
+    elements.orgContinueBtn = newBtn;
+
+    newBtn.addEventListener('click', async () => {
+        if (!selectedUuid || !pendingSessionKey) return;
+        newBtn.disabled = true;
+        newBtn.textContent = 'Connecting...';
+
+        credentials = { sessionKey: pendingSessionKey, organizationId: selectedUuid };
+        await window.electronAPI.saveCredentials(credentials);
+        pendingSessionKey = null;
+
+        showMainContent();
+        await fetchUsageData();
+        startAutoUpdate();
+    });
+}
+
+// Show the org picker (Step 3)
+function showOrgPicker(organizations, warningMessage) {
+    elements.loginStep1.style.display = 'none';
+    elements.loginStep2.style.display = 'none';
+    elements.loginStep3.style.display = 'block';
+
+    if (warningMessage) {
+        elements.orgPickerWarning.textContent = warningMessage;
+        elements.orgPickerWarning.style.display = 'block';
+    } else {
+        elements.orgPickerWarning.style.display = 'none';
+    }
+
+    elements.orgContinueBtn.disabled = true;
+    elements.orgContinueBtn.textContent = 'Continue';
+
+    renderOrgPicker(organizations);
+
+    // Resize widget to fit: title bar (36) + header (~50) + cards + footer (~40) + padding
+    const pickerHeight = 36 + 50 + (organizations.length * 48) + 40 + 30;
+    window.electronAPI.resizeWindow(Math.max(pickerHeight, 200));
 }
 
 // Fetch usage data from Claude API
@@ -1061,6 +1182,9 @@ function showLoginRequired() {
     // Reset to step 1
     elements.loginStep1.style.display = 'flex';
     elements.loginStep2.style.display = 'none';
+    elements.loginStep3.style.display = 'none';
+    elements.orgPickerWarning.style.display = 'none';
+    pendingSessionKey = null;
     elements.sessionKeyError.textContent = '';
     elements.sessionKeyInput.value = '';
     // Close any open overlays

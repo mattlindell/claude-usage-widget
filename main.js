@@ -291,9 +291,21 @@ ipcMain.handle('validate-session-key', async (event, sessionKey) => {
     const data = await fetchViaWindow('https://claude.ai/api/organizations');
 
     if (data && Array.isArray(data) && data.length > 0) {
-      const orgId = data[0].uuid || data[0].id;
-      debugLog('Session key validated, org ID:', orgId);
-      return { success: true, organizationId: orgId };
+      if (data.length === 1) {
+        const orgId = data[0].uuid || data[0].id;
+        debugLog('Session key validated, single org ID:', orgId);
+        return { success: true, organizationId: orgId };
+      }
+
+      // Multiple orgs — return the full list for the picker
+      const organizations = data.map(org => ({
+        uuid: org.uuid || org.id,
+        name: org.name,
+        capabilities: org.capabilities || [],
+        raven_type: org.raven_type || null
+      }));
+      debugLog('Session key validated, multiple orgs:', organizations.length);
+      return { success: true, organizations };
     }
 
     // Check if it's an error response
